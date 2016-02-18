@@ -24,33 +24,29 @@ function AfpParsePushAdapter(pushConfig) {
 
 		// Check for each valid pushType
 		for (let pushType of Object.keys(config)) {
-			console.log(pushType);
-
 			if (this.validPushTypes.indexOf(pushType) < 0) {
 				console.log('Push to ' + pushTypes + ' is not supported');
 
 				throw new Parse.Error(Parse.Error.PUSH_MISCONFIGURED, 'Push to ' + pushTypes + ' is not supported');
 			}
 			else {
-				let configByPushType = confgi[pushType];
+				let configByPushType = config[pushType];
 				let byBundleID = this.senderMapByAppId[bundleId];
 
 				// Reinject bundleId
-				configByPushType["bundleId"] = bundleId;
+				if (Array.isArray(configByPushType))
+					for (var i = 0; i < configByPushType.length; i++)
+						configByPushType[i]["bundleId"] = bundleId;
+				else
+					configByPushType["bundleId"] = bundleId;
 
 				if (!byBundleID)
-				{
-					console.log("byBundleID undefined");
 					byBundleID = this.senderMapByAppId[bundleId] = {};
-				}
 
 				let byPushType = byBundleID[pushType];
 
 				if (!byPushType)
-				{
-					console.log("byPushType is undefined");
 					byPushType = byBundleID[pushType] = [];
-				}
 
 				switch (pushType) {
 					case 'ios':
@@ -60,8 +56,6 @@ function AfpParsePushAdapter(pushConfig) {
 						byPushType.push(new AfpGCM(configByPushType));
 						break;
 				}
-
-				console.log("end");
 			}
 		}
 	}
