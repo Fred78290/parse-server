@@ -15,7 +15,7 @@ import { GridStoreAdapter } from './Adapters/Files/GridStoreAdapter';
 import { S3Adapter } from './Adapters/Files/S3Adapter';
 import { FilesController } from './Controllers/FilesController';
 
-import ParsePushAdapter from './Adapters/Push/ParsePushAdapter';
+import { ParsePushAdapter } from './Adapters/Push/ParsePushAdapter';
 import { PushController } from './Controllers/PushController';
 
 import { ClassesRouter } from './Routers/ClassesRouter';
