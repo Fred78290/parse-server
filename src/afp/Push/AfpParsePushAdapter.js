@@ -17,8 +17,6 @@ function AfpParsePushAdapter(pushConfig) {
 
 	// Enumerate all bundleId
 	for (let bundleId of bundleIds) {
-		console.log(bundleId);
-
 		// Get push config for current bundleId
 		let config = pushConfig[bundleId];
 
