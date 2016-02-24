@@ -14,6 +14,7 @@ var options = {
 	appId: jsonOptions.appId,
 	restAPIKey: jsonOptions.restAPIKey,
 	masterKey: jsonOptions.masterKey,
+	clientKey: jsonOptions.clientKey,
 	push: {
 		adapter: new AfpPushAdapter(jsonPushConfig)
 	}
