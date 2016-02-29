@@ -1,5 +1,3 @@
-var Parse = require('parse/node').Parse;
-
 Parse.Cloud.define('hello', function(req, res) {
   res.success('Hello world!');
 });
@@ -101,4 +99,12 @@ Parse.Cloud.define('requiredParameterCheck', function(req, res) {
   res.success();
 }, function(params) {
   return params.name;
+});
+
+Parse.Cloud.define('echoKeys', function(req, res){
+  return res.success({
+    applicationId: Parse.applicationId,
+    masterKey: Parse.masterKey,
+    javascriptKey: Parse.javascriptKey
+  })
 });
