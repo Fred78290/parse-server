@@ -8,6 +8,8 @@ var jsonOptions = JSON.parse(fs.readFileSync(__dirname + '/config.json', "utf8")
 var ParseServer = require("./lib/index").ParseServer;
 var AfpPushAdapter = require("./lib/afp/Push/AfpParsePushAdapter");
 
+var mountPath = jsonOptions.mountPath || '/parse';
+var port = jsonOptions.port || 8082;
 var options = {
 	databaseURI: jsonOptions.databaseUri,
 	cloud: jsonOptions.cloud,
@@ -15,15 +17,13 @@ var options = {
 	restAPIKey: jsonOptions.restAPIKey,
 	masterKey: jsonOptions.masterKey,
 	clientKey: jsonOptions.clientKey,
-	serverURL: jsonOptions.serverURL,
+	serverURL: jsonOptions.serverURL || `http://localhost:${port}${mountPath}`,
 	push: {
 		adapter: new AfpPushAdapter(jsonPushConfig)
 	}
 }
 
 // Serve the Parse API on the /parse URL prefix
-var mountPath = jsonOptions.mountPath || '/parse';
-var port = jsonOptions.port || 8082;
 var api = new ParseServer(options);
 
 // Client-keys like the javascript key or the .NET key are not necessary with parse-server
