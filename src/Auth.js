@@ -7,10 +7,11 @@ import cache from './cache';
 // An Auth object tells you who is requesting something and whether
 // the master key was used.
 // userObject is a Parse.User and can be null if there's no user.
-function Auth(config, isMaster, userObject) {
+function Auth({ config, isMaster = false, user, installationId } = {}) {
   this.config = config;
+  this.installationId = installationId;
   this.isMaster = isMaster;
-  this.user = userObject;
+  this.user = user;
 
   // Assuming a users roles won't change during a single request, we'll
   // only load them once.
@@ -33,19 +34,19 @@ Auth.prototype.couldUpdateUserId = function(userId) {
 
 // A helper to get a master-level Auth object
 function master(config) {
-  return new Auth(config, true, null);
+  return new Auth({ config, isMaster: true });
 }
 
 // A helper to get a nobody-level Auth object
 function nobody(config) {
-  return new Auth(config, false, null);
+  return new Auth({ config, isMaster: false });
 }
 
 // Returns a promise that resolves to an Auth object
-var getAuthForSessionToken = function(config, sessionToken) {
-  var cachedUser = cache.getUser(sessionToken);
+var getAuthForSessionToken = function({ config, sessionToken, installationId } = {}) {
+  var cachedUser = cache.users.get(sessionToken);
   if (cachedUser) {
-    return Promise.resolve(new Auth(config, false, cachedUser));
+    return Promise.resolve(new Auth({ config, isMaster: false, installationId, user: cachedUser }));
   }
   var restOptions = {
     limit: 1,
@@ -65,9 +66,9 @@ var getAuthForSessionToken = function(config, sessionToken) {
     delete obj.password;
     obj['className'] = '_User';
     obj['sessionToken'] = sessionToken;
-    var userObject = Parse.Object.fromJSON(obj);
-    cache.setUser(sessionToken, userObject);
-    return new Auth(config, false, userObject);
+    let userObject = Parse.Object.fromJSON(obj);
+    cache.users.set(sessionToken, userObject);
+    return new Auth({ config, isMaster: false, installationId, user: userObject });
   });
 };
 
@@ -138,18 +139,18 @@ Auth.prototype._loadRoles = function() {
 };
 
 // Given a role object id, get any other roles it is part of
-// TODO: Make recursive to support role nesting beyond 1 level deep
 Auth.prototype._getAllRoleNamesForId = function(roleID) {
+  
+  // As per documentation, a Role inherits AnotherRole
+  // if this Role is in the roles pointer of this AnotherRole
+  // Let's find all the roles where this role is in a roles relation
   var rolePointer = {
     __type: 'Pointer',
     className: '_Role',
     objectId: roleID
   };
   var restWhere = {
-    '$relatedTo': {
-      key: 'roles',
-      object: rolePointer
-    }
+    'roles': rolePointer
   };
   var query = new RestQuery(this.config, master(this.config), '_Role',
                             restWhere, {});
@@ -159,7 +160,22 @@ Auth.prototype._getAllRoleNamesForId = function(roleID) {
       return Promise.resolve([]);
     }
     var roleIDs = results.map(r => r.objectId);
-    return Promise.resolve(roleIDs);
+    
+    // we found a list of roles where the roleID
+    // is referenced in the roles relation,
+    // Get the roles where those found roles are also
+    // referenced the same way
+    var parentRolesPromises = roleIDs.map( (roleId) => {
+      return this._getAllRoleNamesForId(roleId);
+    });
+    parentRolesPromises.push(Promise.resolve(roleIDs));
+    return Promise.all(parentRolesPromises);
+  }).then(function(results){
+    // Flatten
+    let roleIDs = results.reduce( (memo, result) => {
+      return memo.concat(result);
+    }, []);
+    return Promise.resolve([...new Set(roleIDs)]);
   });
 };
 

@@ -100,6 +100,8 @@ AfpParsePushAdapter.prototype.send = function (data, installations) {
 		}
 	}
 
+	console.log('Send push to: %j for:%j', sendPromises, data);
+
 	return Parse.Promise.when(sendPromises);
 }
 

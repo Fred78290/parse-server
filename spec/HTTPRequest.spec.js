@@ -24,7 +24,11 @@ app.get("/301", function(req, res){
 
 app.post('/echo', function(req, res){
   res.json(req.body);
-})
+});
+
+app.get('/qs', function(req, res){
+  res.json(req.query);
+});
 
 app.listen(13371);
 
@@ -177,5 +181,51 @@ describe("httpRequest", () => {
     var result = httpRequest.encodeBody({"foo": "bar", "bar": "baz"}, {'X-Custom-Header': 'my-header'});
     expect(result).toEqual({"foo": "bar", "bar": "baz"});
     done();
+  });
+  
+  it("should fail gracefully", (done) => {
+    httpRequest({
+      url: "http://not a good url",
+      success: function() { 
+        fail("should not succeed");
+        done();
+      },
+      error: function(error) { 
+        expect(error).not.toBeUndefined();
+        expect(error).not.toBeNull();
+        done();
+      }
+    });
   })
+
+  it("should params object to query string", (done) => {
+    httpRequest({
+      url: httpRequestServer+"/qs",
+      params: {
+         foo: "bar"
+      }
+    }).then(function(httpResponse){
+      expect(httpResponse.status).toBe(200);
+      expect(httpResponse.data).toEqual({foo: "bar"});
+      done();
+    }, function(){
+      fail("should not fail");
+      done();
+    })
+  });
+
+  it("should params string to query string", (done) => {
+    httpRequest({
+      url: httpRequestServer+"/qs",
+      params: "foo=bar&foo2=bar2"
+    }).then(function(httpResponse){
+      expect(httpResponse.status).toBe(200);
+      expect(httpResponse.data).toEqual({foo: "bar", foo2: 'bar2'});
+      done();
+    }, function(){
+      fail("should not fail");
+      done();
+    })
+  });
+
 });

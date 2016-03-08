@@ -1,4 +1,5 @@
 var request = require("request"),
+  querystring = require('querystring'),
   Parse = require('parse/node').Parse;
 
 var encodeBody = function(body, headers = {}) {
@@ -34,8 +35,20 @@ module.exports = function(options) {
   options.body = encodeBody(options.body, options.headers);
   // set follow redirects to false by default
   options.followRedirect = options.followRedirects == true;
-  
+  // support params options
+  if (typeof options.params === 'object') {
+    options.qs = options.params;
+  } else if (typeof options.params === 'string') {
+    options.qs = querystring.parse(options.params);
+  }
+
   request(options, (error, response, body) => {
+    if (error) {
+      if (callbacks.error) {
+        callbacks.error(error);
+      }
+      return promise.reject(error);
+    }
     var httpResponse = {};
     httpResponse.status = response.statusCode;
     httpResponse.headers = response.headers;
@@ -46,7 +59,7 @@ module.exports = function(options) {
       httpResponse.data = JSON.parse(response.body);
     } catch (e) {}
     // Consider <200 && >= 400 as errors 
-    if (error || httpResponse.status <200 || httpResponse.status >=400) {
+    if (httpResponse.status < 200 || httpResponse.status >= 400) {
       if (callbacks.error) {
         callbacks.error(httpResponse);
       }

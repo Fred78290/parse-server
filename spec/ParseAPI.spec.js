@@ -692,6 +692,46 @@ describe('miscellaneous', function() {
     });
   });
 
+  it('afterSave flattens custom operations', done => {
+    var triggerTime = 0;
+    // Register a mock beforeSave hook
+    Parse.Cloud.afterSave('GameScore', function(req, res) {
+      let object = req.object;
+      expect(object instanceof Parse.Object).toBeTruthy();
+      let originalObject = req.original;
+      if (triggerTime == 0) {
+        // Create
+        expect(object.get('yolo')).toEqual(1);
+      } else if (triggerTime == 1) {
+        // Update
+        expect(object.get('yolo')).toEqual(2);
+        // Check the originalObject
+        expect(originalObject.get('yolo')).toEqual(1);
+      } else {
+        res.error();
+      }
+      triggerTime++;
+      res.success();
+    });
+
+    var obj = new Parse.Object('GameScore');
+    obj.increment('yolo', 1);
+    obj.save().then(() => {
+      obj.increment('yolo', 1);
+      return obj.save();
+    }).then(() => {
+      // Make sure the checking has been triggered
+      expect(triggerTime).toBe(2);
+      // Clear mock afterSave
+      Parse.Cloud._removeHook("Triggers", "afterSave", "GameScore");
+      done();
+    }, error => {
+      console.error(error);
+      fail(error);
+      done();
+    });
+  });
+
   it('test cloud function error handling', (done) => {
     // Register a function which will fail
     Parse.Cloud.define('willFail', (req, res) => {
@@ -706,6 +746,80 @@ describe('miscellaneous', function() {
       expect(e.message).toEqual('noway');
       Parse.Cloud._removeHook("Functions", "willFail");
       done();
+    });
+  });
+
+  it('test beforeSave/afterSave get installationId', function(done) {
+    let triggerTime = 0;
+    Parse.Cloud.beforeSave('GameScore', function(req, res) {
+      triggerTime++;
+      expect(triggerTime).toEqual(1);
+      expect(req.installationId).toEqual('yolo');
+      res.success();
+    });
+    Parse.Cloud.afterSave('GameScore', function(req) {
+      triggerTime++;
+      expect(triggerTime).toEqual(2);
+      expect(req.installationId).toEqual('yolo');
+    });
+
+    var headers = {
+      'Content-Type': 'application/json',
+      'X-Parse-Application-Id': 'test',
+      'X-Parse-REST-API-Key': 'rest',
+      'X-Parse-Installation-Id': 'yolo'
+    };
+    request.post({
+      headers: headers,
+      url: 'http://localhost:8378/1/classes/GameScore',
+      body: JSON.stringify({ a: 'b' })
+    }, (error, response, body) => {
+      expect(error).toBe(null);
+      expect(triggerTime).toEqual(2);
+
+      Parse.Cloud._removeHook("Triggers", "beforeSave", "GameScore");
+      Parse.Cloud._removeHook("Triggers", "afterSave", "GameScore");
+      done();
+    });
+  });
+
+  it('test beforeDelete/afterDelete get installationId', function(done) {
+    let triggerTime = 0;
+    Parse.Cloud.beforeDelete('GameScore', function(req, res) {
+      triggerTime++;
+      expect(triggerTime).toEqual(1);
+      expect(req.installationId).toEqual('yolo');
+      res.success();
+    });
+    Parse.Cloud.afterDelete('GameScore', function(req) {
+      triggerTime++;
+      expect(triggerTime).toEqual(2);
+      expect(req.installationId).toEqual('yolo');
+    });
+
+    var headers = {
+      'Content-Type': 'application/json',
+      'X-Parse-Application-Id': 'test',
+      'X-Parse-REST-API-Key': 'rest',
+      'X-Parse-Installation-Id': 'yolo'
+    };
+    request.post({
+      headers: headers,
+      url: 'http://localhost:8378/1/classes/GameScore',
+      body: JSON.stringify({ a: 'b' })
+    }, (error, response, body) => {
+      expect(error).toBe(null);
+      request.del({
+        headers: headers,
+        url: 'http://localhost:8378/1/classes/GameScore/' + JSON.parse(body).objectId
+      }, (error, response, body) => {
+        expect(error).toBe(null);
+        expect(triggerTime).toEqual(2);
+
+        Parse.Cloud._removeHook("Triggers", "beforeDelete", "GameScore");
+        Parse.Cloud._removeHook("Triggers", "afterDelete", "GameScore");
+        done();
+      });
     });
   });
 
@@ -850,6 +964,79 @@ describe('miscellaneous', function() {
       expect(e.code).toEqual(Parse.Error.SCRIPT_FAILED);
       expect(e.message).toEqual('Invalid function.');
       done();
+    });
+  });
+
+  it('beforeSave change propagates through the save response', (done) => {
+    Parse.Cloud.beforeSave('ChangingObject', function(request, response) {
+      request.object.set('foo', 'baz');
+      response.success();
+    });
+    let obj = new Parse.Object('ChangingObject');
+    obj.save({ foo: 'bar' }).then((objAgain) => {
+      expect(objAgain.get('foo')).toEqual('baz');
+      Parse.Cloud._removeHook("Triggers", "beforeSave", "ChangingObject");
+      done();
+    }, (e) => {
+      Parse.Cloud._removeHook("Triggers", "beforeSave", "ChangingObject");
+      fail('Should not have failed to save.');
+      done();
+    });
+  });
+
+  it('dedupes an installation properly and returns updatedAt', (done) => {
+    let headers = {
+      'Content-Type': 'application/json',
+      'X-Parse-Application-Id': 'test',
+      'X-Parse-REST-API-Key': 'rest'
+    };
+    let data = {
+      'installationId': 'lkjsahdfkjhsdfkjhsdfkjhsdf',
+      'deviceType': 'embedded'
+    };
+    let requestOptions = {
+      headers: headers,
+      url: 'http://localhost:8378/1/installations',
+      body: JSON.stringify(data)
+    };
+    request.post(requestOptions, (error, response, body) => {
+      expect(error).toBe(null);
+      let b = JSON.parse(body);
+      expect(typeof b.objectId).toEqual('string');
+      request.post(requestOptions, (error, response, body) => {
+        expect(error).toBe(null);
+        let b = JSON.parse(body);
+        expect(typeof b.updatedAt).toEqual('string');
+        done();
+      });
+    });
+  });
+
+  it('android login providing empty authData block works', (done) => {
+    let headers = {
+      'Content-Type': 'application/json',
+      'X-Parse-Application-Id': 'test',
+      'X-Parse-REST-API-Key': 'rest'
+    };
+    let data = {
+      username: 'pulse1989',
+      password: 'password1234',
+      authData: {}
+    };
+    let requestOptions = {
+      headers: headers,
+      url: 'http://localhost:8378/1/users',
+      body: JSON.stringify(data)
+    };
+    request.post(requestOptions, (error, response, body) => {
+      expect(error).toBe(null);
+      requestOptions.url = 'http://localhost:8378/1/login';
+      request.get(requestOptions, (error, response, body) => {
+        expect(error).toBe(null);
+        let b = JSON.parse(body);
+        expect(typeof b['sessionToken']).toEqual('string');
+        done();
+      });
     });
   });
 

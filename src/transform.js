@@ -42,6 +42,12 @@ export function transformKeyValue(schema, className, restKey, restValue, options
     key = '_updated_at';
     timeField = true;
     break;
+  case '_email_verify_token':
+    key = "_email_verify_token";
+    break;
+  case '_perishable_token':
+    key = "_perishable_token";
+    break;
   case 'sessionToken':
   case '_session_token':
     key = '_session_token';
@@ -406,6 +412,7 @@ function transformConstraint(constraint, inArray) {
     case '$gte':
     case '$exists':
     case '$ne':
+    case '$eq':
       answer[key] = transformAtom(constraint[key], true,
                                   {inArray: inArray});
       break;
@@ -638,7 +645,7 @@ function untransformObject(schema, className, mongoObject, isNestedObject = fals
         break;
       case 'expiresAt':
       case '_expiresAt':
-        restObject['expiresAt'] = Parse._encode(new Date(mongoObject[key])).iso;
+        restObject['expiresAt'] = Parse._encode(new Date(mongoObject[key]));
         break;
       default:
         // Check other auth data keys
@@ -649,7 +656,7 @@ function untransformObject(schema, className, mongoObject, isNestedObject = fals
           restObject['authData'][provider] = mongoObject[key];
           break;
         }
-        
+
         if (key.indexOf('_p_') == 0) {
           var newKey = key.substring(3);
           var expected;

@@ -68,11 +68,11 @@ RestWrite.prototype.execute = function() {
   }).then(() => {
     return this.handleSession();
   }).then(() => {
+    return this.validateAuthData();
+  }).then(() => {
     return this.runBeforeTrigger();
   }).then(() => {
     return this.setRequiredFieldsIfNeeded();
-  }).then(() => {
-    return this.validateAuthData();
   }).then(() => {
     return this.transformUser();
   }).then(() => {
@@ -136,6 +136,10 @@ RestWrite.prototype.validateSchema = function() {
 // Runs any beforeSave triggers against this operation.
 // Any change leads to our data being mutated.
 RestWrite.prototype.runBeforeTrigger = function() {
+  if (this.response) {
+    return;
+  }
+  
   // Avoid doing any setup for triggers if there is no 'beforeSave' trigger for this class.
   if (!triggers.triggerExists(this.className, triggers.Types.beforeSave, this.config.applicationId)) {
     return Promise.resolve();
@@ -160,6 +164,7 @@ RestWrite.prototype.runBeforeTrigger = function() {
   }).then((response) => {
     if (response && response.object) {
       this.data = response.object;
+      this.storage['changedByTrigger'] = true;
       // We should delete the objectId for an update write
       if (this.query && this.query.objectId) {
         delete this.data.objectId
@@ -174,7 +179,11 @@ RestWrite.prototype.setRequiredFieldsIfNeeded = function() {
     this.data.updatedAt = this.updatedAt;
     if (!this.query) {
       this.data.createdAt = this.updatedAt;
-      this.data.objectId = cryptoUtils.newObjectId();
+
+      // Only assign new objectId if we are creating new object
+      if (!this.data.objectId) {
+        this.data.objectId = cryptoUtils.newObjectId();
+      }
     }
   }
   return Promise.resolve();
@@ -461,12 +470,18 @@ RestWrite.prototype.transformUser = function() {
                                 'address');
         }
         return Promise.resolve();
-      });
+      }).then(() => {
+        // We updated the email, send a new validation
+        this.storage['sendVerificationEmail'] = true;
+        this.config.userController.setEmailVerifyToken(this.data);
+        return Promise.resolve();
+      })
   });
 };
 
 // Handles any followup logic
 RestWrite.prototype.handleFollowup = function() {
+  
   if (this.storage && this.storage['clearSessions']) {
     var sessionQuery = {
       user: {
@@ -476,8 +491,15 @@ RestWrite.prototype.handleFollowup = function() {
         }
     };
     delete this.storage['clearSessions'];
-    return this.config.database.destroy('_Session', sessionQuery)
+    this.config.database.destroy('_Session', sessionQuery)
     .then(this.handleFollowup.bind(this));
+  }
+  
+  if (this.storage && this.storage['sendVerificationEmail']) {
+    delete this.storage['sendVerificationEmail'];
+    // Fire and forget!
+    this.config.userController.sendVerificationEmail(this.data);
+    this.handleFollowup.bind(this);
   }
 };
 
@@ -594,6 +616,9 @@ RestWrite.prototype.handleInstallation = function() {
 
   var promise = Promise.resolve();
 
+  var idMatch; // Will be a match on either objectId or installationId
+  var deviceTokenMatches = [];
+
   if (this.query && this.query.objectId) {
     promise = promise.then(() => {
       return this.config.database.find('_Installation', {
@@ -603,22 +628,22 @@ RestWrite.prototype.handleInstallation = function() {
           throw new Parse.Error(Parse.Error.OBJECT_NOT_FOUND,
                                 'Object not found for update.');
         }
-        var existing = results[0];
-        if (this.data.installationId && existing.installationId &&
-          this.data.installationId !== existing.installationId) {
+        idMatch = results[0];
+        if (this.data.installationId && idMatch.installationId &&
+          this.data.installationId !== idMatch.installationId) {
           throw new Parse.Error(136,
                                 'installationId may not be changed in this ' +
                                 'operation');
         }
-        if (this.data.deviceToken && existing.deviceToken &&
-          this.data.deviceToken !== existing.deviceToken &&
-          !this.data.installationId && !existing.installationId) {
+        if (this.data.deviceToken && idMatch.deviceToken &&
+          this.data.deviceToken !== idMatch.deviceToken &&
+          !this.data.installationId && !idMatch.installationId) {
           throw new Parse.Error(136,
                                 'deviceToken may not be changed in this ' +
                                 'operation');
         }
         if (this.data.deviceType && this.data.deviceType &&
-          this.data.deviceType !== existing.deviceType) {
+          this.data.deviceType !== idMatch.deviceType) {
           throw new Parse.Error(136,
                                 'deviceType may not be changed in this ' +
                                 'operation');
@@ -629,8 +654,6 @@ RestWrite.prototype.handleInstallation = function() {
   }
 
   // Check if we already have installations for the installationId/deviceToken
-  var installationMatch;
-  var deviceTokenMatches = [];
   promise = promise.then(() => {
     if (this.data.installationId) {
       return this.config.database.find('_Installation', {
@@ -641,7 +664,7 @@ RestWrite.prototype.handleInstallation = function() {
   }).then((results) => {
     if (results && results.length) {
       // We only take the first match by installationId
-      installationMatch = results[0];
+      idMatch = results[0];
     }
     if (this.data.deviceToken) {
       return this.config.database.find(
@@ -653,7 +676,7 @@ RestWrite.prototype.handleInstallation = function() {
     if (results) {
       deviceTokenMatches = results;
     }
-    if (!installationMatch) {
+    if (!idMatch) {
       if (!deviceTokenMatches.length) {
         return;
       } else if (deviceTokenMatches.length == 1 &&
@@ -691,14 +714,14 @@ RestWrite.prototype.handleInstallation = function() {
         // Exactly one device token match and it doesn't have an installation
         // ID. This is the one case where we want to merge with the existing
         // object.
-        var delQuery = {objectId: installationMatch.objectId};
+        var delQuery = {objectId: idMatch.objectId};
         return this.config.database.destroy('_Installation', delQuery)
           .then(() => {
             return deviceTokenMatches[0]['objectId'];
           });
       } else {
         if (this.data.deviceToken &&
-          installationMatch.deviceToken != this.data.deviceToken) {
+          idMatch.deviceToken != this.data.deviceToken) {
           // We're setting the device token on an existing installation, so
           // we should try cleaning out old installations that match this
           // device token.
@@ -714,7 +737,7 @@ RestWrite.prototype.handleInstallation = function() {
           this.config.database.destroy('_Installation', delQuery);
         }
         // In non-merge scenarios, just return the installation match id
-        return installationMatch.objectId;
+        return idMatch.objectId;
       }
     }
   }).then((objId) => {
@@ -764,8 +787,10 @@ RestWrite.prototype.runDatabaseOperation = function() {
     // Run an update
     return this.config.database.update(
       this.className, this.query, this.data, this.runOptions).then((resp) => {
-        this.response = resp;
-        this.response.updatedAt = this.updatedAt;
+        resp.updatedAt = this.updatedAt;
+        this.response = {
+          response: resp
+        };
       });
   } else {
     // Set the default ACL for the new _User
@@ -782,6 +807,9 @@ RestWrite.prototype.runDatabaseOperation = function() {
           objectId: this.data.objectId,
           createdAt: this.data.createdAt
         };
+        if (this.storage['changedByTrigger']) {
+          Object.assign(resp, this.data);
+        }
         if (this.storage['token']) {
           resp.sessionToken = this.storage['token'];
         }
@@ -796,22 +824,33 @@ RestWrite.prototype.runDatabaseOperation = function() {
 
 // Returns nothing - doesn't wait for the trigger.
 RestWrite.prototype.runAfterTrigger = function() {
+  if (!this.response || !this.response.response) {
+    return;
+  }
+
+  // Avoid doing any setup for triggers if there is no 'afterSave' trigger for this class.
+  if (!triggers.triggerExists(this.className, triggers.Types.afterSave, this.config.applicationId)) {
+    return Promise.resolve();
+  }
+
   var extraData = {className: this.className};
   if (this.query && this.query.objectId) {
     extraData.objectId = this.query.objectId;
   }
 
-  // Build the inflated object, different from beforeSave, originalData is not empty
-  // since developers can change data in the beforeSave.
-  var inflatedObject = triggers.inflate(extraData, this.originalData);
-  inflatedObject._finishFetch(this.data);
   // Build the original object, we only do this for a update write.
-  var originalObject;
+  let originalObject;
   if (this.query && this.query.objectId) {
     originalObject = triggers.inflate(extraData, this.originalData);
   }
 
-  triggers.maybeRunTrigger(triggers.Types.afterSave, this.auth, inflatedObject, originalObject, this.config.applicationId);
+  // Build the inflated object, different from beforeSave, originalData is not empty
+  // since developers can change data in the beforeSave.
+  let updatedObject = triggers.inflate(extraData, this.originalData);
+  updatedObject.set(Parse._decode(undefined, this.data));
+  updatedObject._handleSaveResponse(this.response.response, this.response.status || 200);
+
+  triggers.maybeRunTrigger(triggers.Types.afterSave, this.auth, updatedObject, originalObject, this.config.applicationId);
 };
 
 // A helper to figure out what location this operation happens at.
@@ -827,4 +866,5 @@ RestWrite.prototype.objectId = function() {
   return this.data.objectId || this.query.objectId;
 };
 
+export default RestWrite;
 module.exports = RestWrite;
