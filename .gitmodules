@@ -1,0 +1,3 @@
+[submodule "external/node-apn"]
+	path = external/node-apn
+	url = https://github.com/argon/node-apn.git
