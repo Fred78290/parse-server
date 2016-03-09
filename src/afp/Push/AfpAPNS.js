@@ -3,7 +3,7 @@
 const Parse = require('parse/node').Parse;
 // TODO: apn does not support the new HTTP/2 protocal. It is fine to use it in V1,
 // but probably we will replace it in the future.
-const apn = require('apn');
+const apn = require('../apn');
 
 /**
  * Create a new connection to the APN service.
