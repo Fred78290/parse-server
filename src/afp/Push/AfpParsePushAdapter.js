@@ -142,7 +142,8 @@ AfpParsePushAdapter.prototype.classifyInstallation = function classifyInstallati
 			deviceMap[pushType].push({
 				deviceType: installation.deviceType,
 				deviceToken: installation.deviceToken,
-				appIdentifier: installation.appIdentifier
+				appIdentifier: installation.appIdentifier,
+				production:!installation.sandbox ? true : installation.sandbox == false
 			});
 		} else {
 			console.log('Unknown push type from installation %j', installation);
