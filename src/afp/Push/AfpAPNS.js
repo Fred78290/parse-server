@@ -150,14 +150,18 @@ function chooseConns(conns, device) {
 	let qualifiedConns = [];
 	for (let index = 0; index < conns.length; index++) {
 		let conn = conns[index];
-		// If the device we need to send to does not have
-		// appIdentifier, any conn could be a qualified connection
-		if (!device.appIdentifier || device.appIdentifier === '') {
-			qualifiedConns.push(index);
-			continue;
-		}
-		if (device.appIdentifier === conn.bundleId) {
-			qualifiedConns.push(index);
+
+		// Dont push for not same channel
+		if (conn.options.production === device.production) {
+			// If the device we need to send to does not have
+			// appIdentifier, any conn could be a qualified connection
+			if (!device.appIdentifier || device.appIdentifier === '') {
+				qualifiedConns.push(index);
+				continue;
+			}
+			if (device.appIdentifier === conn.bundleId) {
+				qualifiedConns.push(index);
+			}
 		}
 	}
 	return qualifiedConns;
